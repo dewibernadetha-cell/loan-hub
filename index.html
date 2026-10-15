@@ -97,12 +97,13 @@ button.stp{padding:7px 12px;font-size:15px;line-height:1}
 @media (max-width:640px){.tabs button{padding:8px 12px;font-size:13px}#clr{margin-left:0}h1{font-size:22px}.kp b{font-size:19px}.card{padding:14px}.w{padding:14px 12px 32px}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style></head><body><div class="w">
-<h1>Loan Hub <span class="pill">Amartha</span> <span id="cloud" class="cloud m" title="Data disimpan di browser ini. Gunakan Cadangkan data untuk memindahkan ke perangkat lain.">💾 …</span></h1><div class="sub">Khusus pendanaan PT Amartha Mikro Fintek. Upload data loan &amp; ledger Odoo secara berkala; data yang sama (No PO) otomatis ditimpa.</div>
+<h1>Loan Hub <span class="pill">Amartha</span> <span id="cloud" class="cloud m" title="Data disimpan di browser ini. Gunakan Cadangkan data atau Google Drive untuk mengamankannya.">💾 …</span></h1><div class="sub">Khusus pendanaan PT Amartha Mikro Fintek. Upload data loan &amp; ledger Odoo secara berkala; data yang sama (No PO) otomatis ditimpa.</div>
 <div class="card"><div class="row">
 <div><label>Data Loan (.xlsx)</label><input type="file" id="fl" accept=".xlsx,.xls,.csv"></div>
 <div><label>Ledger Odoo (.xlsx)</label><input type="file" id="fg" accept=".xlsx,.xls,.csv"></div>
 <button class="g" data-x="loan">Unduh Data Loan (Excel)</button><button class="g" data-x="rk">Unduh Hasil Rekon (Excel)</button><button data-x="all">Unduh Semua (1 file)</button><button class="g" id="bk">Cadangkan data</button><button class="g" id="rs">Pulihkan cadangan</button><input type="file" id="rsf" accept=".json" hidden><button class="g" id="clr">Hapus semua data</button></div>
 <div class="m" id="msg" style="margin-top:8px"></div></div>
+<details class="card"><summary style="cursor:pointer;font-weight:700">☁ Simpan otomatis ke Google Drive <span class="m" style="font-weight:500">(opsional, supaya data aman kalau browser dibersihkan)</span></summary><div class="row" style="margin-top:12px"><div><label>URL Apps Script</label><input id="gsu" style="width:380px;max-width:100%" placeholder="https://script.google.com/macros/s/…/exec"></div><div><label>Kode rahasia</label><input id="gst" type="password" style="width:200px" autocomplete="off"></div><button id="gsc">Hubungkan</button><button class="g" id="gsn">Simpan sekarang</button><button class="g" id="gsl">Muat dari Google</button><button class="g" id="gsx">Putuskan</button></div><div class="m" id="gsm" style="margin-top:8px">URL dan kode rahasia hanya disimpan di browser ini, tidak ikut ke file cadangan.</div></details>
 <div class="tabs" id="tabs"><button data-t="dash" class="on">📊 Dashboard</button><button data-t="rp">💸 Repayment</button><button data-t="pet">🧑‍🌾 Peternak</button><button data-t="rek">🔍 Rekonsiliasi</button></div>
 <div id="v"></div></div>
 <script>
@@ -115,7 +116,7 @@ const dd=s=>s?s.split("-").reverse().join("/"):"-";
 const dayDiff=s=>Math.round((new Date(s)-new Date(today))/864e5);
 function idb(){return new Promise((ok,no)=>{try{const r=indexedDB.open("loanhub",1);r.onupgradeneeded=()=>r.result.createObjectStore("s");r.onsuccess=()=>ok(r.result);r.onerror=()=>no()}catch(e){no(e)}})}
 async function persist(){try{const d=await idb();d.transaction("s","readwrite").objectStore("s").put(S,"d")}catch(e){}}
-async function save(){await persist();schedSync()}
+async function save(){await persist();schedSync();gsSched()}
 async function load(){try{const d=await idb();return await new Promise(ok=>{const r=d.transaction("s").objectStore("s").get("d");r.onsuccess=()=>ok(r.result);r.onerror=()=>ok(null)})}catch(e){return null}}
 function ymd(v){let d;if(v instanceof Date)d=new Date(v.getTime()+43200000);else if(typeof v==="string"){let m=v.match(/(\d{4})-(\d{2})-(\d{2})/);if(m)return m[0];m=v.match(/(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})/);if(m)return m[3]+"-"+m[2].padStart(2,"0")+"-"+m[1].padStart(2,"0");m=v.match(/(\d{1,2})[\s\/.-]+([A-Za-z]{3,})[\s\/.-]+(\d{4})/);if(m){const M={jan:1,feb:2,mar:3,apr:4,mei:5,may:5,jun:6,jul:7,agu:8,agt:8,aug:8,sep:9,okt:10,oct:10,nov:11,des:12,dec:12}[m[2].slice(0,3).toLowerCase()];if(M)return m[3]+"-"+String(M).padStart(2,"0")+"-"+m[1].padStart(2,"0")}return""}else return"";
 if(isNaN(d)||d.getFullYear()<2000)return"";return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")}
@@ -241,6 +242,28 @@ XLSX.writeFile(wb,name,{cellDates:true})}
 document.addEventListener("click",async e=>{const b=e.target.closest("[data-x]");if(!b)return;const o=b.textContent;b.textContent="Menyiapkan…";
 try{const r=buildWb(b.dataset.x);if(!r){msg(b.dataset.x==="rk"?"Upload data loan dan ledger dulu untuk mengunduh hasil rekon.":"Belum ada data untuk diunduh.")}else await dlx(r.wb,r.nm+"-"+today+".xlsx")}catch(x){msg("Gagal membuat Excel: "+x.message)}finally{b.textContent=o}});
 const og={};
+let GS=null,gsBusy=false,gsTm=null;try{GS=JSON.parse(localStorage.getItem("lh_gs")||"null")}catch(e){}
+const gsInfo=t=>{const e=$("gsm");if(e)e.textContent=t};
+async function gsCall(b){const r=await fetch(GS.url,{method:"POST",body:JSON.stringify({token:GS.token,...b})});const j=await r.json();if(!j.ok)throw new Error(j.error==="token"?"kode rahasia salah":(j.error||"gagal"));return j}
+function gsSnap(){return{loans:cleanLoans(),led:Object.values(S.led),meta:S.meta,done:S.done,manual:S.manual,bank:S.bank,acct:S.acct,paid:S.paid}}
+async function gsPush(j,sig){const rev=Date.now();await gsCall({action:"save",rev,z:await gz(j)});S.sy.g={rev,sig};await persist()}
+async function gsPull(){const r=await gsCall({action:"load"});if(!r.data)throw new Error("belum ada data di Google Drive");const v=JSON.parse(await ungz(r.data.z));
+S.loans={};v.loans.forEach(l=>S.loans[key(l.po)]=l);S.led={};v.led.forEach(l=>S.led[l.k]=l);S.meta=v.meta||{};["done","manual","bank","acct","paid"].forEach(k=>S[k]=v[k]||{});
+S.sy.g={rev:r.data.rev,sig:sg(JSON.stringify(gsSnap()))};await persist();render()}
+function gsSched(){if(!GS)return;clearTimeout(gsTm);gsTm=setTimeout(gsSync,3000)}
+async function gsSync(){if(!GS)return;if(gsBusy){return}gsBusy=true;setCloud("☁ Google Drive: menyinkronkan…","");
+try{S.sy=S.sy||{};const h=await gsCall({action:"head"}),j=JSON.stringify(gsSnap()),sig=sg(j),ly=S.sy.g,has=Object.keys(S.loans).length+Object.keys(S.led).length>0;let act="none";
+if(h.rev){if(!ly)act=has?(confirm("Ada data di Google Drive. Pakai data Google untuk menggantikan data di browser ini?\n\nOK = pakai data Google\nBatal = kirim data browser ini ke Google")?"load":"save"):"load";else if(h.rev>ly.rev)act=ly.sig===sig?"load":"save";else act=ly.sig!==sig?"save":"none"}else act=has?"save":"none";
+if(act==="load")await gsPull();else if(act==="save")await gsPush(j,sig);
+const t=new Date().toLocaleTimeString("id-ID",{hour:"2-digit",minute:"2-digit"});setCloud("☁ Google Drive tersinkron "+t,"ok");gsInfo(act==="load"?"Data dimuat dari Google Drive.":act==="save"?"Data tersimpan ke Google Drive.":"Sudah sama dengan Google Drive.")}
+catch(e){setCloud("☁ Google Drive gagal: "+e.message,"bad");gsInfo("Gagal: "+e.message)}
+finally{gsBusy=false}}
+function gsStart(){const u=$("gsu"),t=$("gst");if(GS){u.value=GS.url;t.value=GS.token;gsSync()}
+$("gsc").onclick=async()=>{const url=u.value.trim(),tk=t.value.trim();if(!/^https:\/\/script\.google\.com\/macros\//.test(url)||!tk){gsInfo("Isi URL Apps Script (diawali https://script.google.com/macros/) dan kode rahasia.");return}GS={url,token:tk};localStorage.setItem("lh_gs",JSON.stringify(GS));await gsSync()};
+$("gsn").onclick=async()=>{if(!GS){gsInfo("Hubungkan dulu.");return}gsBusy=false;try{setCloud("☁ Google Drive: menyimpan…","");const j=JSON.stringify(gsSnap());await gsPush(j,sg(j));setCloud("☁ Google Drive tersinkron","ok");gsInfo("Data tersimpan ke Google Drive.")}catch(e){setCloud("☁ Google Drive gagal: "+e.message,"bad");gsInfo("Gagal: "+e.message)}};
+$("gsl").onclick=async()=>{if(!GS){gsInfo("Hubungkan dulu.");return}if(!confirm("Timpa data di browser ini dengan data dari Google Drive?"))return;try{await gsPull();setCloud("☁ Google Drive tersinkron","ok");gsInfo("Data dimuat dari Google Drive.")}catch(e){gsInfo("Gagal: "+e.message)}};
+$("gsx").onclick=()=>{localStorage.removeItem("lh_gs");GS=null;u.value="";t.value="";setCloud("💾 Data tersimpan di browser ini","m");gsInfo("Terputus dari Google Drive. Data di browser dan di Google tidak dihapus.")}}
+
 const PARTS=["loans","led","done","manual","bank","acct","paid","meta"];let CL=null,syncing=false,again=false,stm=null;
 function setCloud(t,c){const e=$("cloud");if(e){e.textContent=t;e.className="cloud "+(c||"")}}
 function cleanLoans(){return Object.values(S.loans).map(l=>{if(!l.o&&!l.man&&!l.bk)return l;const c={...l};if(l.o){c.rep=l.o.rep;c.st=l.o.st}delete c.o;delete c.man;delete c.bk;return c})}
@@ -335,5 +358,5 @@ bd("rd",e=>{rd=e.target.value;render()});bd("rm",e=>{rm=e.target.value;render()}
 bd("rb",e=>{rb=e.target.value;render()});bd("ra",e=>{ra=e.target.value;render()});bd("rod",e=>{rod=e.target.value;render()});bd("rdue",e=>{rdue=e.target.checked;render()});bd("nq",e=>{nq=e.target.value.replace(/\D/g,"");render()})}
 const cu=$("cu");if(cu){cu.onclick=()=>{try{cu.showPicker()}catch(e){}};cu.onchange=e=>{cut=e.target.value;render()};$("tl").onchange=e=>{tol=+e.target.value||0;render()};$("rf").onchange=e=>{rf=e.target.value;render()};$("rq").oninput=e=>{rq=e.target.value;const p=e.target.selectionStart;render();const n=$("rq");n.focus();n.setSelectionRange(p,p)}}}
 document.addEventListener("click",e=>{const r=e.target.closest("tr[data-p]");if(r){sel=r.dataset.p;tab="pet";[...$("tabs").children].forEach(x=>x.classList.toggle("on",x.dataset.t==="pet"));render();window.scrollTo({top:tab==="pet"?document.body.scrollHeight:0,behavior:"smooth"})}});
-load().then(v=>{if(v&&v.loans){S=v;S.done=S.done||{};S.manual=S.manual||{};S.bank=S.bank||{};S.acct=S.acct||{};S.paid=S.paid||{};S.sy=S.sy||{};msg(`Data tersimpan: ${Object.keys(S.loans).length} PO, ${Object.keys(S.led||{}).length} baris ledger. Loan terakhir: ${S.meta.loan||"-"}`+(S.meta.pv!==2?" · PERLU upload ulang Book3.xlsx: data tersimpan masih memakai Total Tagihan pembulatan.":""))}render();initCloud()});
+load().then(v=>{if(v&&v.loans){S=v;S.done=S.done||{};S.manual=S.manual||{};S.bank=S.bank||{};S.acct=S.acct||{};S.paid=S.paid||{};S.sy=S.sy||{};msg(`Data tersimpan: ${Object.keys(S.loans).length} PO, ${Object.keys(S.led||{}).length} baris ledger. Loan terakhir: ${S.meta.loan||"-"}`+(S.meta.pv!==2?" · PERLU upload ulang Book3.xlsx: data tersimpan masih memakai Total Tagihan pembulatan.":""))}render();initCloud();gsStart()});
 </script></body></html>
